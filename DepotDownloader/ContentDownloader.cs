@@ -956,6 +956,20 @@ namespace DepotDownloader
                 MaxDegreeOfParallelism = Config.MaxDownloads,
                 CancellationToken = cts.Token
             };
+            // Suppose 'files' is the set of manifest files you will handle for this depot
+            // and each has a Chunks collection with UncompressedLength
+            
+            var totalUncompressed =
+                files.Sum(f => (long)f.Chunks.Sum(c => (long)c.UncompressedLength));
+            
+            depotDownloadCounter.completeDownloadSize = (ulong)totalUncompressed;
+            depotDownloadCounter.sizeDownloaded = 0;
+            
+            downloadCounter.completeDownloadSize = (ulong)totalUncompressed;
+            downloadCounter.totalBytesUncompressed = 0;
+            
+            Ansi.Progress(0, depotDownloadCounter.completeDownloadSize);
+            Ansi.Progress(0, downloadCounter.completeDownloadSize);
 
             await Parallel.ForEachAsync(files, parallelOptions, async (file, cancellationToken) =>
             {
@@ -1359,7 +1373,7 @@ namespace DepotDownloader
                 fileStreamData.fileStream?.Dispose();
                 fileStreamData.fileLock.Dispose();
             }
-
+            
             ulong sizeDownloaded = 0;
             lock (depotDownloadCounter)
             {
@@ -1367,22 +1381,38 @@ namespace DepotDownloader
                 depotDownloadCounter.sizeDownloaded = sizeDownloaded;
                 depotDownloadCounter.depotBytesCompressed += chunk.CompressedLength;
                 depotDownloadCounter.depotBytesUncompressed += chunk.UncompressedLength;
+            
+                // ← ADD: emit depot-level progress after each chunk update
+                Ansi.Progress(
+                    depotDownloadCounter.sizeDownloaded,
+                    depotDownloadCounter.completeDownloadSize
+                );
             }
-
+            
             lock (downloadCounter)
             {
                 downloadCounter.totalBytesCompressed += chunk.CompressedLength;
                 downloadCounter.totalBytesUncompressed += chunk.UncompressedLength;
-
-                Ansi.Progress(downloadCounter.totalBytesUncompressed, downloadCounter.completeDownloadSize);
+            
+                // You already had this — keep it:
+                Ansi.Progress(downloadCounter.totalBytesUncompressed,
+                              downloadCounter.completeDownloadSize);
             }
-
+            
             if (remainingChunks == 0)
             {
                 var fileFinalPath = Path.Combine(depot.InstallDir, file.FileName);
-                Console.WriteLine("{0,6:#00.00}% {1}", (sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f, fileFinalPath);
+                Console.WriteLine("{0,6:#00.00}% {1}",
+                    (sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f,
+                    fileFinalPath);
+            
+                // ← ADD: also emit after the per-file completion line
+                Ansi.Progress(
+                    depotDownloadCounter.sizeDownloaded,
+                    depotDownloadCounter.completeDownloadSize
+                );
             }
-        }
+
 
         class ChunkIdComparer : IEqualityComparer<byte[]>
         {
