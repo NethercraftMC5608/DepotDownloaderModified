@@ -1135,13 +1135,9 @@ namespace DepotDownloader
                     {
                         depotDownloadCounter.sizeDownloaded += file.TotalSize;
 
-                        // Calculate percent
-                        float percent = (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f;
-
-                        // Original console output
+                        var percent = (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f;
                         Console.WriteLine("{0,6:#00.00}% {1}", percent, fileFinalPath);
 
-                        // NEW: also write to JSON progress file
                         try
                         {
                             var pctByte = (byte)Math.Clamp((int)Math.Round(percent), 0, 100);
@@ -1152,19 +1148,16 @@ namespace DepotDownloader
                                 (ulong)depotDownloadCounter.completeDownloadSize
                             );
                         }
-                        catch
-                        {
-                            // Ignore if writing fails
-                        }
+                        catch { /* ignore */ }
                     }
 
                     lock (downloadCounter)
                     {
                         downloadCounter.completeDownloadSize -= file.TotalSize;
                     }
-
                     return;
                 }
+
 
 
                 var sizeOnDisk = (file.TotalSize - (ulong)neededChunks.Select(x => (long)x.UncompressedLength).Sum());
