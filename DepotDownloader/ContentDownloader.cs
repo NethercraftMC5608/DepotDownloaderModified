@@ -46,6 +46,37 @@ namespace DepotDownloader
             public string InstallDir { get; } = installDir;
             public byte[] DepotKey { get; } = depotKey;
         }
+        // --- JSON progress emitter (throttled) -------------------------------
+        private static DateTime _lastEmit = DateTime.MinValue;
+        private static byte _lastPct = 255;
+        
+        private static void EmitProgressThrottled(DepotDownloadCounter c)
+        {
+            try
+            {
+                ulong downloaded = c.sizeDownloaded;
+                ulong total      = c.completeDownloadSize;
+        
+                byte pct = total == 0
+                    ? (byte)0
+                    : (byte)Math.Clamp((int)Math.Round(downloaded * 100.0 / total), 0, 100);
+        
+                var now = DateTime.UtcNow;
+                if (pct == _lastPct && (now - _lastEmit).TotalMilliseconds < 200)
+                    return;
+        
+                _lastPct = pct;
+                _lastEmit = now;
+        
+                DepotDownloader.Ansi.Progress(
+                    DepotDownloader.Ansi.ProgressState.Default,
+                    pct,
+                    downloaded,
+                    total
+                );
+            }
+            catch { /* best-effort */ }
+        }
 
         static bool CreateDirectories(uint depotId, uint depotVersion, out string installDir)
         {
@@ -973,6 +1004,8 @@ namespace DepotDownloader
             DepotConfigStore.Save();
 
             Console.WriteLine("Depot {0} - Downloaded {1} bytes ({2} bytes uncompressed)", depot.DepotId, depotCounter.depotBytesCompressed, depotCounter.depotBytesUncompressed);
+            depotDownloadCounter.sizeDownloaded = depotDownloadCounter.completeDownloadSize;
+            EmitProgressThrottled(depotDownloadCounter);
         }
 
         private static void DownloadSteam3AsyncDepotFile(
@@ -1137,6 +1170,8 @@ namespace DepotDownloader
 
                         var percent = (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f;
                         Console.WriteLine("{0,6:#00.00}% {1}", percent, fileFinalPath);
+                        depotDownloadCounter.sizeDownloaded += (ulong)chunkBytesWritten;  // e.g. (ulong)chunk.CompressedLength
+                        EmitProgressThrottled(depotDownloadCounter);
 
                         try
                         {
