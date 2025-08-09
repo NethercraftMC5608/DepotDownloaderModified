@@ -35,7 +35,8 @@ namespace DepotDownloader
             }
 
             Ansi.Init();
-
+            Console.WriteLine("[DD JSON] init, progressFile={0}",
+                Environment.GetEnvironmentVariable("DEPOTDOWNLOADER_PROGRESS_FILE") ?? "(null)");
             DebugLog.Enabled = false;
 
             AccountSettingsStore.LoadFromFile("account.config");
