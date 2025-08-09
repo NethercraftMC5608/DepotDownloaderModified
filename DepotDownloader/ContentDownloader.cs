@@ -1410,7 +1410,7 @@ namespace DepotDownloader
                 Ansi.Progress(
                     depotDownloadCounter.sizeDownloaded,
                     depotDownloadCounter.completeDownloadSize
-                );
+                )
             }
 
 
