@@ -33,7 +33,8 @@ namespace DepotDownloader
 
         private const string DEFAULT_DOWNLOAD_DIR = "depots";
         private const string CONFIG_DIR = ".DepotDownloader";
-        private static readonly string STAGING_DIR = Path.Combine(CONFIG_DIR, "staging");
+        private const float V = 100.0f;
+        private static readonly string STAGING_DIR = Path.Combine(CONFIG_DIR1, "staging");
 
         private sealed class DepotDownloadInfo(
             uint depotid, uint appId, ulong manifestId, string branch,
@@ -49,25 +50,27 @@ namespace DepotDownloader
         // --- JSON progress emitter (throttled) -------------------------------
         private static DateTime _lastEmit = DateTime.MinValue;
         private static byte _lastPct = 255;
-        
+
+        public static string CONFIG_DIR1 => CONFIG_DIR;
+
         private static void EmitProgressThrottled(DepotDownloadCounter c)
         {
             try
             {
                 ulong downloaded = c.sizeDownloaded;
-                ulong total      = c.completeDownloadSize;
-        
+                ulong total = c.completeDownloadSize;
+
                 byte pct = total == 0
                     ? (byte)0
                     : (byte)Math.Clamp((int)Math.Round(downloaded * 100.0 / total), 0, 100);
-        
+
                 var now = DateTime.UtcNow;
                 if (pct == _lastPct && (now - _lastEmit).TotalMilliseconds < 200)
                     return;
-        
+
                 _lastPct = pct;
                 _lastEmit = now;
-        
+
                 DepotDownloader.Ansi.Progress(
                     DepotDownloader.Ansi.ProgressState.Default,
                     pct,
@@ -93,7 +96,7 @@ namespace DepotDownloader
                     installDir = Path.Combine(depotPath, depotVersion.ToString());
                     Directory.CreateDirectory(installDir);
 
-                    Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR));
+                    Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR1));
                     Directory.CreateDirectory(Path.Combine(installDir, STAGING_DIR));
                 }
                 else
@@ -102,7 +105,7 @@ namespace DepotDownloader
 
                     installDir = Config.InstallDirectory;
 
-                    Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR));
+                    Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR1));
                     Directory.CreateDirectory(Path.Combine(installDir, STAGING_DIR));
                 }
             }
@@ -449,8 +452,8 @@ namespace DepotDownloader
                 configPath = DEFAULT_DOWNLOAD_DIR;
             }
 
-            Directory.CreateDirectory(Path.Combine(configPath, CONFIG_DIR));
-            DepotConfigStore.LoadFromFile(Path.Combine(configPath, CONFIG_DIR, "depot.config"));
+            Directory.CreateDirectory(Path.Combine(configPath, CONFIG_DIR1));
+            DepotConfigStore.LoadFromFile(Path.Combine(configPath, CONFIG_DIR1, "depot.config"));
 
             await steam3?.RequestAppInfo(appId);
 
@@ -745,7 +748,7 @@ namespace DepotDownloader
 
             DepotManifest oldManifest = null;
             DepotManifest newManifest = null;
-            var configDir = Path.Combine(depot.InstallDir, CONFIG_DIR);
+            var configDir = Path.Combine(depot.InstallDir, CONFIG_DIR1);
 
             var lastManifestId = INVALID_MANIFEST_ID;
             DepotConfigStore.Instance.InstalledManifestIDs.TryGetValue(depot.DepotId, out lastManifestId);
@@ -958,16 +961,16 @@ namespace DepotDownloader
             };
             // Suppose 'files' is the set of manifest files you will handle for this depot
             // and each has a Chunks collection with UncompressedLength
-            
+
             var totalUncompressed =
                 files.Sum(f => (long)f.Chunks.Sum(c => (long)c.UncompressedLength));
-            
+
             depotDownloadCounter.completeDownloadSize = (ulong)totalUncompressed;
             depotDownloadCounter.sizeDownloaded = 0;
-            
+
             downloadCounter.completeDownloadSize = (ulong)totalUncompressed;
             downloadCounter.totalBytesUncompressed = 0;
-            
+
             Ansi.Progress(0, depotDownloadCounter.completeDownloadSize);
             Ansi.Progress(0, downloadCounter.completeDownloadSize);
 
@@ -1373,7 +1376,7 @@ namespace DepotDownloader
                 fileStreamData.fileStream?.Dispose();
                 fileStreamData.fileLock.Dispose();
             }
-            
+
             ulong sizeDownloaded = 0;
             lock (depotDownloadCounter)
             {
@@ -1381,37 +1384,38 @@ namespace DepotDownloader
                 depotDownloadCounter.sizeDownloaded = sizeDownloaded;
                 depotDownloadCounter.depotBytesCompressed += chunk.CompressedLength;
                 depotDownloadCounter.depotBytesUncompressed += chunk.UncompressedLength;
-            
+
                 // ← ADD: emit depot-level progress after each chunk update
                 Ansi.Progress(
                     depotDownloadCounter.sizeDownloaded,
                     depotDownloadCounter.completeDownloadSize
                 );
             }
-            
+
             lock (downloadCounter)
             {
                 downloadCounter.totalBytesCompressed += chunk.CompressedLength;
                 downloadCounter.totalBytesUncompressed += chunk.UncompressedLength;
-            
+
                 // You already had this — keep it:
                 Ansi.Progress(downloadCounter.totalBytesUncompressed,
                               downloadCounter.completeDownloadSize);
             }
-            
+
             if (remainingChunks == 0)
             {
                 var fileFinalPath = Path.Combine(depot.InstallDir, file.FileName);
-                Console.WriteLine("{0,6:#00.00}% {1}",
-                    (sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f,
-                    fileFinalPath);
-            
+                var v1 = sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize;
+                var v = v1;
+                Console.WriteLine($"{v * V,6:#00.00}% {fileFinalPath}");
+
                 // ← ADD: also emit after the per-file completion line
                 Ansi.Progress(
                     depotDownloadCounter.sizeDownloaded,
                     depotDownloadCounter.completeDownloadSize
-                )
+                );
             }
+        }
 
 
         class ChunkIdComparer : IEqualityComparer<byte[]>
