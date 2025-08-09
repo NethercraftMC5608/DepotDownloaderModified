@@ -4,114 +4,151 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using Spectre.Console;
 
-namespace DepotDownloader;
-
-/// <summary>
-/// Handles console‑based ANSI progress reporting and (optionally) writes
-/// structured progress data to a file whenever the environment variable
-/// DEPOTDOWNLOADER_PROGRESS_FILE is set.
-/// </summary>
-static class Ansi
+namespace DepotDownloader
 {
-    // ------------------------------------------------------------------
-    // ANSI progress‑bar escape‑sequence definitions
-    // ------------------------------------------------------------------
-    // https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
-    // https://learn.microsoft.com/en-us/windows/terminal/tutorials/progress-bar-sequences
-    public enum ProgressState : byte
+    /// <summary>
+    /// Handles console-based ANSI progress reporting and (optionally) writes
+    /// structured progress data to a file whenever the environment variable
+    /// DEPOTDOWNLOADER_PROGRESS_FILE is set.
+    /// </summary>
+    static class Ansi
     {
-        Hidden        = 0,
-        Default       = 1,
-        Error         = 2,
-        Indeterminate = 3,
-        Warning       = 4
-    }
-
-    private const char ESC = (char)0x1B;
-    private const char BEL = (char)0x07;
-
-    private static bool   useProgress;          // true → console supports OSC 9;4
-    private static string? progressFilePath;    // path from env‑var, if any
-    private static bool   announced;            // print the path only once
-
-    // ------------------------------------------------------------------
-    // One‑time initialisation (called from Program.Main)
-    // ------------------------------------------------------------------
-    public static void Init()
-    {
-        // skip OSC sequences if input or output is redirected
-        if (Console.IsInputRedirected || Console.IsOutputRedirected)
-            return;
-
-        // OSC 9;4 currently has no effect on Linux ttys
-        if (OperatingSystem.IsLinux())
-            return;
-
-        var (supportsAnsi, legacyConsole) = AnsiDetector.Detect(stdError: false, upgrade: true);
-        useProgress = supportsAnsi && !legacyConsole;
-
-        progressFilePath = Environment.GetEnvironmentVariable("DEPOTDOWNLOADER_PROGRESS_FILE");
-        if (!string.IsNullOrWhiteSpace(progressFilePath) && !announced)
+        // ------------------------------------------------------------------
+        // ANSI progress-bar escape-sequence definitions
+        // ------------------------------------------------------------------
+        // https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+        // https://learn.microsoft.com/windows/terminal/tutorials/progress-bar-sequences
+        public enum ProgressState : byte
         {
-            Console.WriteLine($"[Ansi] Progress file = {progressFilePath}");
-            announced = true;
+            Hidden        = 0,
+            Default       = 1,
+            Error         = 2,
+            Indeterminate = 3,
+            Warning       = 4
         }
-    }
 
-    // ------------------------------------------------------------------
-    // Convenience overload – calculate percentage automatically
-    // ------------------------------------------------------------------
-    public static void Progress(ulong downloaded, ulong total)
-    {
-        byte pct = total == 0
-            ? (byte)0
-            : (byte)MathF.Round(downloaded / (float)total * 100.0f);
+        private const char ESC = (char)0x1B;
+        private const char BEL = (char)0x07;
 
-        Progress(ProgressState.Default, pct, downloaded, total);
-    }
+        // true → emit OSC 9;4 sequences (Windows Terminal, ConEmu, etc.)
+        private static bool   useProgress;
+        // path for JSON progress (from env var)
+        private static string? progressFilePath;
+        // print the path only once
+        private static bool   announced;
 
-    // ------------------------------------------------------------------
-    // Core routine – emits OSC 9;4 *and* (optionally) writes JSON
-    // ------------------------------------------------------------------
-    public static void Progress(
-        ProgressState state,
-        byte          percent     = 0,
-        ulong         downloaded  = 0,
-        ulong         total       = 0)
-    {
-        // ---- console progress bar (Windows Terminal, WT, ConEmu, etc.) ----
-        if (useProgress)
-            Console.Write($"{ESC}]9;4;{(byte)state};{percent}{BEL}");
-
-        // ---- structured file logging for external tools (Python, etc.) ----
-        if (string.IsNullOrWhiteSpace(progressFilePath))
-            return; // feature disabled
-
-        try
+        /// <summary>
+        /// One-time initialization (call from Program.Main before downloads start).
+        /// </summary>
+        public static void Init()
         {
-            var payload = new
+            // --- Always enable JSON progress if env var is set, regardless of OS/TTY ---
+            progressFilePath = Environment.GetEnvironmentVariable("DEPOTDOWNLOADER_PROGRESS_FILE");
+            if (!string.IsNullOrWhiteSpace(progressFilePath) && !announced)
             {
-                downloaded,
-                total,
-                percentage = percent
-            };
+                try
+                {
+                    Console.WriteLine($"[Ansi] Progress file = {progressFilePath}");
+                }
+                catch
+                {
+                    // ignore if output is fully redirected/unsupported
+                }
+                announced = true;
+            }
 
-            var options = new JsonSerializerOptions { WriteIndented = false };
+            // --- Gate only the OSC 9;4 taskbar progress behind terminal/OS checks ---
+            // If input or output is redirected, skip OSC (JSON still works).
+            if (Console.IsInputRedirected || Console.IsOutputRedirected)
+                return;
 
-            // overwrite in *create* mode so the reader can open the file immediately
-            using var fs = new FileStream(
-                progressFilePath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.ReadWrite);   // allow simultaneous reading
+            // OSC 9;4 currently has no effect on Linux ttys (keep JSON enabled though).
+            if (OperatingSystem.IsLinux())
+                return;
 
-            JsonSerializer.Serialize(fs, payload, options);
+            // If you have a terminal capability detector, wire it in here.
+            // Otherwise just assume modern Windows terminals support OSC.
+            try
+            {
+                // Example: if you have your own detector:
+                // var (supportsAnsi, legacyConsole) = AnsiDetector.Detect(stdError: false, upgrade: true);
+                // useProgress = supportsAnsi && !legacyConsole;
+
+                // Fallback: enable on Windows by default.
+                useProgress = OperatingSystem.IsWindows();
+            }
+            catch
+            {
+                useProgress = false;
+            }
         }
-        catch
+
+        /// <summary>
+        /// Convenience overload – calculate percentage automatically.
+        /// </summary>
+        public static void Progress(ulong downloaded, ulong total)
         {
-            // ignore I/O errors (locked path, permission issues, etc.)
+            byte pct = total == 0
+                ? (byte)0
+                : (byte)MathF.Round(downloaded / (float)total * 100.0f);
+
+            Progress(ProgressState.Default, pct, downloaded, total);
+        }
+
+        /// <summary>
+        /// Core routine – emits OSC 9;4 (if supported) and writes JSON (if env var set).
+        /// </summary>
+        public static void Progress(
+            ProgressState state,
+            byte          percent    = 0,
+            ulong         downloaded = 0,
+            ulong         total      = 0)
+        {
+            // ---- console taskbar progress (Windows Terminal, ConEmu, etc.) ----
+            if (useProgress)
+            {
+                try
+                {
+                    Console.Write($"{ESC}]9;4;{(byte)state};{percent}{BEL}");
+                }
+                catch
+                {
+                    // ignore console write failures
+                }
+            }
+
+            // ---- structured file logging for external tools (Python, etc.) ----
+            if (string.IsNullOrWhiteSpace(progressFilePath))
+                return; // feature disabled
+
+            try
+            {
+                var payload = new
+                {
+                    downloaded,
+                    total,
+                    percentage = percent
+                };
+
+                var options = new JsonSerializerOptions { WriteIndented = false };
+
+                // Overwrite in *create* mode so the reader can open the file immediately.
+                // Share read/write so a polling reader can read concurrently.
+                using var fs = new FileStream(
+                    progressFilePath!,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.ReadWrite);
+
+                JsonSerializer.Serialize(fs, payload, options);
+                // optional: flush to be extra safe
+                fs.Flush(flushToDisk: false);
+            }
+            catch
+            {
+                // ignore I/O errors (locked path, permission issues, short-lived races, etc.)
+            }
         }
     }
 }
