@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamKit2;
@@ -61,7 +62,7 @@ namespace DepotDownloader
                 ulong total = c.completeDownloadSize;
 
                 byte pct = total == 0
-                    ? (byte)0
+                    ? (byte)100
                     : (byte)Math.Clamp((int)Math.Round(downloaded * 100.0 / total), 0, 100);
 
                 var now = DateTime.UtcNow;
