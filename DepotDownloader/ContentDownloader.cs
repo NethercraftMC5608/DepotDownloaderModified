@@ -971,8 +971,7 @@ namespace DepotDownloader
             downloadCounter.completeDownloadSize = (ulong)totalUncompressed;
             downloadCounter.totalBytesUncompressed = 0;
 
-            Ansi.Progress(0, depotDownloadCounter.completeDownloadSize);
-            Ansi.Progress(0, downloadCounter.completeDownloadSize);
+            EmitProgressThrottled(depotDownloadCounter);
 
             await Parallel.ForEachAsync(files, parallelOptions, async (file, cancellationToken) =>
             {
@@ -1188,18 +1187,6 @@ namespace DepotDownloader
                         var percent = (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f;
                         Console.WriteLine("{0,6:#00.00}% {1}", percent, fileFinalPath);
                         EmitProgressThrottled(depotDownloadCounter);
-
-                        try
-                        {
-                            var pctByte = (byte)Math.Clamp((int)Math.Round(percent), 0, 100);
-                            DepotDownloader.Ansi.Progress(
-                                DepotDownloader.Ansi.ProgressState.Default,
-                                pctByte,
-                                (ulong)depotDownloadCounter.sizeDownloaded,
-                                (ulong)depotDownloadCounter.completeDownloadSize
-                            );
-                        }
-                        catch { /* ignore */ }
                     }
 
                     lock (downloadCounter)
@@ -1384,23 +1371,13 @@ namespace DepotDownloader
                 depotDownloadCounter.depotBytesCompressed += chunk.CompressedLength;
                 depotDownloadCounter.depotBytesUncompressed += chunk.UncompressedLength;
 
-                // ← ADD: emit depot-level progress after each chunk update
-                Ansi.Progress(
-                    depotDownloadCounter.sizeDownloaded,
-                    depotDownloadCounter.completeDownloadSize
-                );
+                EmitProgressThrottled(depotDownloadCounter);
             }
 
             lock (downloadCounter)
             {
                 downloadCounter.totalBytesCompressed += chunk.CompressedLength;
                 downloadCounter.totalBytesUncompressed += chunk.UncompressedLength;
-
-                // use the original total size: downloaded + remaining
-                Ansi.Progress(
-                    downloadCounter.totalBytesUncompressed,
-                    downloadCounter.totalBytesUncompressed + downloadCounter.completeDownloadSize
-                );
             }
 
             if (remainingChunks == 0)
@@ -1410,11 +1387,7 @@ namespace DepotDownloader
                 var v = v1;
                 Console.WriteLine($"{v * V,6:#00.00}% {fileFinalPath}");
 
-                // ← ADD: also emit after the per-file completion line
-                Ansi.Progress(
-                    depotDownloadCounter.sizeDownloaded,
-                    depotDownloadCounter.completeDownloadSize
-                );
+                EmitProgressThrottled(depotDownloadCounter);
             }
         }
 
