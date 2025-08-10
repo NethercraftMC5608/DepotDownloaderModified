@@ -425,13 +425,42 @@ namespace DepotDownloader
             Directory.CreateDirectory(Path.GetDirectoryName(fileFinalPath));
             Directory.CreateDirectory(Path.GetDirectoryName(fileStagingPath));
 
-            using (var file = File.OpenWrite(fileStagingPath))
-            using (var client = HttpClientFactory.CreateHttpClient())
+            using var file = File.OpenWrite(fileStagingPath);
+            using var client = HttpClientFactory.CreateHttpClient();
+
+            Console.WriteLine("Downloading {0}", fileName);
+
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            var total = (ulong?)response.Content.Headers.ContentLength ?? 0UL;
+            var counter = new DepotDownloadCounter
             {
-                Console.WriteLine("Downloading {0}", fileName);
-                var responseStream = await client.GetStreamAsync(url);
-                await responseStream.CopyToAsync(file);
+                completeDownloadSize = total,
+                sizeDownloaded = 0
+            };
+
+            EmitProgressThrottled(counter);
+
+            await using var responseStream = await response.Content.ReadAsStreamAsync();
+            var buffer = ArrayPool<byte>.Shared.Rent(81920);
+            try
+            {
+                int read;
+                while ((read = await responseStream.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+                {
+                    await file.WriteAsync(buffer.AsMemory(0, read));
+                    counter.sizeDownloaded += (ulong)read;
+                    EmitProgressThrottled(counter);
+                }
             }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            counter.sizeDownloaded = counter.completeDownloadSize;
+            EmitProgressThrottled(counter);
 
             if (File.Exists(fileFinalPath))
             {
