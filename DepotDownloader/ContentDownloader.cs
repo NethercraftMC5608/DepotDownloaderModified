@@ -947,7 +947,7 @@ namespace DepotDownloader
             GlobalDownloadCounter downloadCounter, DepotFilesData depotFilesData, HashSet<string> allFileNamesAllDepots)
         {
             var depot = depotFilesData.depotDownloadInfo;
-            var depotCounter = depotFilesData.depotCounter;
+            var depotDownloadCounter = depotFilesData.depotCounter;
 
             Console.WriteLine("Downloading depot {0}", depot.DepotId);
 
@@ -1020,7 +1020,7 @@ namespace DepotDownloader
             DepotConfigStore.Instance.InstalledManifestIDs[depot.DepotId] = depot.ManifestId;
             DepotConfigStore.Save();
 
-            Console.WriteLine("Depot {0} - Downloaded {1} bytes ({2} bytes uncompressed)", depot.DepotId, depotCounter.depotBytesCompressed, depotCounter.depotBytesUncompressed);
+            Console.WriteLine("Depot {0} - Downloaded {1} bytes ({2} bytes uncompressed)", depot.DepotId, depotDownloadCounter.depotBytesCompressed, depotDownloadCounter.depotBytesUncompressed);
             depotDownloadCounter.sizeDownloaded = depotDownloadCounter.completeDownloadSize;
             EmitProgressThrottled(depotDownloadCounter);
         }
@@ -1187,7 +1187,6 @@ namespace DepotDownloader
 
                         var percent = (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f;
                         Console.WriteLine("{0,6:#00.00}% {1}", percent, fileFinalPath);
-                        depotDownloadCounter.sizeDownloaded += (ulong)chunkBytesWritten;  // e.g. (ulong)chunk.CompressedLength
                         EmitProgressThrottled(depotDownloadCounter);
 
                         try
@@ -1397,9 +1396,11 @@ namespace DepotDownloader
                 downloadCounter.totalBytesCompressed += chunk.CompressedLength;
                 downloadCounter.totalBytesUncompressed += chunk.UncompressedLength;
 
-                // You already had this — keep it:
-                Ansi.Progress(downloadCounter.totalBytesUncompressed,
-                              downloadCounter.completeDownloadSize);
+                // use the original total size: downloaded + remaining
+                Ansi.Progress(
+                    downloadCounter.totalBytesUncompressed,
+                    downloadCounter.totalBytesUncompressed + downloadCounter.completeDownloadSize
+                );
             }
 
             if (remainingChunks == 0)
